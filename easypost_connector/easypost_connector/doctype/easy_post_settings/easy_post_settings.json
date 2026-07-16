@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-07 11:35:56.907600",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enable",
+  "base_url",
+  "version",
+  "column_break_lqpa",
+  "mode",
+  "test_key",
+  "production_key",
+  "webhook_secret"
+ ],
+ "fields": [
+  {
+   "fieldname": "base_url",
+   "fieldtype": "Data",
+   "label": "Base Url"
+  },
+  {
+   "fieldname": "version",
+   "fieldtype": "Data",
+   "label": "Version"
+  },
+  {
+   "default": "test",
+   "fieldname": "mode",
+   "fieldtype": "Select",
+   "label": "Mode",
+   "options": "\ntest\nproduction"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable",
+   "fieldtype": "Check",
+   "label": "Enable"
+  },
+  {
+   "depends_on": "eval:doc.mode==\"test\"",
+   "fieldname": "test_key",
+   "fieldtype": "Data",
+   "label": "Test Key"
+  },
+  {
+   "depends_on": "eval:doc.mode==\"production\"",
+   "fieldname": "production_key",
+   "fieldtype": "Data",
+   "label": "Production Key"
+  },
+  {
+   "fieldname": "column_break_lqpa",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "webhook_secret",
+   "fieldtype": "Data",
+   "label": "Webhook Secret"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-13 12:59:37.010265",
+ "modified_by": "Administrator",
+ "module": "Easypost Connector",
+ "name": "Easy Post Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
