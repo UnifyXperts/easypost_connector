@@ -2419,7 +2419,7 @@
    "_liked_by": null,
    "_user_tags": null,
    "creation": "2026-05-06 12:45:40.746550",
-   "default_value": null,
+   "default_value": "MAT-DN-.YYYY.-",
    "doc_type": "Delivery Note",
    "docstatus": 0,
    "doctype_or_field": "DocField",
