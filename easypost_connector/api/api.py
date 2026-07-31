@@ -2,6 +2,17 @@ import frappe
 import requests
 from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 from frappe.utils import get_datetime, convert_utc_to_system_timezone
+from PIL import Image
+from io import BytesIO
+from requests.auth import HTTPBasicAuth
+import json
+import hmac
+import hashlib
+import frappe
+import io
+import math
+import socket
+from frappe.utils.file_manager import save_file
 
 
 EasyPostSettings = frappe.get_doc("Easy Post Settings")
@@ -16,15 +27,16 @@ else:
 
 BASE_URL = EasyPostSettings.base_url
 VERSION = EasyPostSettings.version
+TARGET_DPI = 300  
 
-import frappe
-import requests
+
 
 
 @frappe.whitelist()
 def create_easypost_shipment(doc=None, method=None, delivery_note=None):
     if not delivery_note :
         return 
+    
     if not doc and delivery_note:
         dn = frappe.get_doc("Delivery Note", delivery_note)
     else:
@@ -53,8 +65,14 @@ def create_easypost_shipment(doc=None, method=None, delivery_note=None):
 
     if not shipping_address:
         shipping_address = billing_address
+        
+    if len(dn.custom_shipment_parcel_dimensions) == 0:
+        return
+
     
     parcel = dn.custom_shipment_parcel_dimensions[0]
+    
+    
 
     payload = {
         "shipment": {
@@ -153,13 +171,6 @@ def buy_shipment(delivery_note):
         "tracking_status_details": tracker.get("status_detail")
     }
     
-# easypost_connector/api/api.py
-import json
-import hmac
-import hashlib
-import frappe
-
-
 from frappe.utils import (
     get_datetime,
     convert_utc_to_system_timezone,
@@ -171,6 +182,11 @@ def easypost_webhook():
     frappe.set_user("Administrator")
 
     raw_body = frappe.request.get_data()
+    headers = frappe.request.headers
+    frappe.log_error(
+        title="EasyPost Webhook Received",
+        message=f"Headers: {headers}\n\nBody: {raw_body.decode('utf-8')}"
+    )
     signature = frappe.request.headers.get("X-Hmac-Signature")
 
     secret = frappe.conf.get("easypost_webhook_secret")
@@ -267,3 +283,240 @@ def easypost_webhook():
 
     frappe.local.response.http_status_code = 200
     return {"status": "ok"}
+
+@frappe.whitelist()
+def convert_png_to_bw(shipment_id, docname):
+
+    # Get Shipment
+    response = requests.get(
+        f"{BASE_URL}/{VERSION}/shipments/{shipment_id}",
+        auth=HTTPBasicAuth(api_key, "")
+    )
+
+    if response.status_code != 200:
+        frappe.throw(response.text)
+
+    shipment = response.json()
+
+    png_url = shipment["postage_label"]["label_url"]
+
+    # Download PNG
+    img_response = requests.get(png_url)
+    img_response.raise_for_status()
+
+    # Convert PNG -> ZPL
+    zpl_bytes = png_bytes_to_zpl(
+        img_response.content,
+        source_dpi=300
+    )
+
+    EasyPostSettings = frappe.get_single("Easy Post Settings")
+
+    if EasyPostSettings.host_ip and EasyPostSettings.port:
+        try:
+            print_status = print_zpl(
+                host=EasyPostSettings.host_ip,
+                port=int(EasyPostSettings.port or 6101),
+                zpl_bytes=zpl_bytes,
+                copies=1
+            )
+        except Exception:
+            frappe.log_error(frappe.get_traceback(), "Zebra Print Failed")
+            frappe.throw("Unable to print label.")
+    else:
+        print_status = "Printer not configured."
+
+    # Save ZPL locally
+    zpl_path = f"/tmp/{shipment_id}.zpl"
+
+    with open(zpl_path, "wb") as f:
+        f.write(zpl_bytes)
+
+    # Attach to Delivery Note
+    with open(zpl_path, "rb") as f:
+        file_doc = save_file(
+            f"{shipment_id}.zpl",
+            f.read(),
+            "Delivery Note",
+            docname,
+            is_private=0
+        )
+
+    frappe.db.set_value(
+        "Delivery Note",
+        docname,
+        "custom_zpl_file_url",
+        file_doc.file_url
+    )
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "zpl_url": file_doc.file_url,
+        "print_status": print_status
+    }
+
+
+def png_bytes_to_zpl(png_bytes: bytes, source_dpi: int = None) -> bytes:
+    """
+    Convert EasyPost PNG label to ZPL (^GFB binary).
+
+    USPS : 300 DPI (1200x1800)
+    UPS  : 200 DPI (800x1400) -> scaled to 300 DPI
+    """
+
+    img = Image.open(io.BytesIO(png_bytes)).convert("L")
+
+    # Auto-detect source DPI
+    if source_dpi is None:
+        source_dpi = 200 if img.width <= 850 else 300
+
+    # Scale to 300 DPI if required
+    if source_dpi != TARGET_DPI:
+        scale = TARGET_DPI / source_dpi
+        img = img.resize(
+            (
+                round(img.width * scale),
+                round(img.height * scale),
+            ),
+            Image.LANCZOS,
+        )
+
+    # Convert to monochrome after scaling
+    img = img.convert("1")
+
+    w_px, h_px = img.size
+
+    bytes_per_row = math.ceil(w_px / 8)
+    total_bytes = bytes_per_row * h_px
+
+    raw = bytearray()
+    pixels = img.load()
+
+    for y in range(h_px):
+        for x in range(0, w_px, 8):
+            byte = 0
+
+            for bit in range(8):
+                xx = x + bit
+
+                if xx < w_px and pixels[xx, y] == 0:
+                    byte |= (1 << (7 - bit))
+
+            raw.append(byte)
+
+    zpl = (
+        f"^XA\n"
+        f"^CI28\n"
+        f"^PW{w_px}\n"
+        f"^LL{h_px}\n"
+        f"^FO0,0\n"
+    ).encode("ascii")
+
+    zpl += f"^GFB,{len(raw)},{total_bytes},{bytes_per_row},".encode("ascii")
+    zpl += raw
+    zpl += b"\n^FS\n^XZ\n"
+
+    return bytes(zpl)
+
+
+
+def print_zpl(host: str, port: int, zpl_bytes: bytes,
+              copies: int = 1, timeout: int = 10) -> str:
+    """
+    Send ZPL bytes to a Zebra printer via TCP socket.
+
+    Args:
+        host:      Printer IP address
+        port:      Printer port (6101 for Zebra default)
+        zpl_bytes: ZPL content as bytes (from png_bytes_to_zpl or file)
+        copies:    Number of copies to print
+        timeout:   Socket timeout in seconds
+
+    Returns:
+        Status string describing what was sent
+
+    Raises:
+        OSError: If connection fails or printer unreachable
+    """
+    if isinstance(zpl_bytes, str):
+        # Safety: if accidentally passed a string, encode with latin-1
+        # (latin-1 is byte-transparent unlike UTF-8)
+        zpl_bytes = zpl_bytes.encode("latin-1")
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect((host, port))
+    for _ in range(copies):
+        s.sendall(zpl_bytes)
+    try:
+        response = s.recv(1024)
+    except Exception:
+        response = b""
+    s.close()
+
+    return (f"Sent {copies} label(s) ({len(zpl_bytes):,} bytes) to {host}:{port}" +
+            (f" — printer: {repr(response)}" if response else ""))
+
+
+
+
+@frappe.whitelist()
+def verify_address(address_name, doc_name, doctype):
+
+    doc = frappe.get_doc(doctype, doc_name)
+    address = frappe.get_doc("Address", address_name)
+
+    payload = {
+        "address": {
+            "name": address.address_title,
+            "street1": address.address_line1,
+            "street2": address.address_line2,
+            "city": address.city,
+            "state": address.state,
+            "zip": address.pincode,
+            "country": address.country,
+            "phone": address.phone,
+            "email": address.email_id,
+        }
+    }
+
+    payload["address"] = {
+        k: v for k, v in payload["address"].items() if v
+    }
+
+    response = requests.post(
+        f"{BASE_URL}/{VERSION}/addresses/create_and_verify",
+        auth=HTTPBasicAuth(api_key, ""),
+        json=payload,
+        timeout=30
+    )
+
+    data = response.json()
+
+    if response.status_code not in (200, 201):
+        error = data.get("error", {})
+        errors = error.get("errors", [])
+
+        error_message = "<br>".join(
+            f"• {err.get('message')}" for err in errors
+        )
+
+        frappe.throw(
+            title="Address Verification Failed",
+            msg=f"{error_message or error.get('message')} <br> data: {data}"
+        )
+ 
+
+
+    # Mark verified
+    doc.db_set("custom_is_address_verified", 1)
+    doc.reload()
+
+    return {
+        "verified_address": data.get("address"),
+        "message": "Address verified successfully.",
+        "status": "success",
+        "verified": True
+        }
