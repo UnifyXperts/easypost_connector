@@ -286,8 +286,67 @@ def easypost_webhook():
 
 @frappe.whitelist()
 def convert_png_to_bw(shipment_id, docname):
-
+    doc=frappe.get_doc("Delivery Note", docname)
     # Get Shipment
+    response = requests.get(
+        f"{BASE_URL}/{VERSION}/shipments/{shipment_id}",
+        auth=HTTPBasicAuth(api_key, "")
+    )
+
+    if response.status_code != 200:
+        frappe.throw(response.text)
+
+    shipment = response.json()
+
+    png_url = shipment["postage_label"]["label_url"]
+
+    # Download PNG
+    img_response = requests.get(png_url)
+    img_response.raise_for_status()
+
+    # Convert PNG -> ZPL
+    zpl_bytes = png_bytes_to_zpl(
+        img_response.content,
+        source_dpi=300
+    )
+
+    EasyPostSettings = frappe.get_single("Easy Post Settings")
+
+    zpl_path = f"/tmp/{shipment_id}.zpl"
+
+    with open(zpl_path, "wb") as f:
+        f.write(zpl_bytes)
+
+    # Attach to Delivery Note
+    with open(zpl_path, "rb") as f:
+        file_doc = save_file(
+            f"{shipment_id}.zpl",
+            f.read(),
+            "Delivery Note",
+            docname,
+            is_private=0
+        )
+    doc.custom_zpl_file = file_doc.file_url
+    
+    frappe.db.set_value(
+    "Delivery Note",
+    docname,
+    {
+        "custom_zpl_file": file_doc.file_url,
+        "custom_zpl_file_url": file_doc.file_url
+    }
+)
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "zpl_url": file_doc.file_url,
+        "message": "ZPL file created and attached to Delivery Note."}
+
+@frappe.whitelist()
+def print_label(shipment_id, docname):
+    print_status = "Not printed"
     response = requests.get(
         f"{BASE_URL}/{VERSION}/shipments/{shipment_id}",
         auth=HTTPBasicAuth(api_key, "")
@@ -322,41 +381,14 @@ def convert_png_to_bw(shipment_id, docname):
             )
         except Exception:
             frappe.log_error(frappe.get_traceback(), "Zebra Print Failed")
-            frappe.throw("Unable to print label.")
     else:
         print_status = "Printer not configured."
 
-    # Save ZPL locally
-    zpl_path = f"/tmp/{shipment_id}.zpl"
-
-    with open(zpl_path, "wb") as f:
-        f.write(zpl_bytes)
-
-    # Attach to Delivery Note
-    with open(zpl_path, "rb") as f:
-        file_doc = save_file(
-            f"{shipment_id}.zpl",
-            f.read(),
-            "Delivery Note",
-            docname,
-            is_private=0
-        )
-
-    frappe.db.set_value(
-        "Delivery Note",
-        docname,
-        "custom_zpl_file_url",
-        file_doc.file_url
-    )
-
-    frappe.db.commit()
-
+    
     return {
         "success": True,
-        "zpl_url": file_doc.file_url,
         "print_status": print_status
     }
-
 
 def png_bytes_to_zpl(png_bytes: bytes, source_dpi: int = None) -> bytes:
     """
@@ -459,7 +491,11 @@ def print_zpl(host: str, port: int, zpl_bytes: bytes,
     return (f"Sent {copies} label(s) ({len(zpl_bytes):,} bytes) to {host}:{port}" +
             (f" — printer: {repr(response)}" if response else ""))
 
+import requests
+from requests.auth import HTTPBasicAuth
 
+import frappe
+from erpnext.selling.doctype.sales_order.sales_order import make_delivery_note
 
 
 @frappe.whitelist()
@@ -505,18 +541,253 @@ def verify_address(address_name, doc_name, doctype):
 
         frappe.throw(
             title="Address Verification Failed",
-            msg=f"{error_message or error.get('message')} <br> data: {data}"
+            msg=error_message or error.get("message")
         )
- 
-
 
     # Mark verified
     doc.db_set("custom_is_address_verified", 1)
-    doc.reload()
+
+
+
+    steps = get_steps(doc)
+
+    steps["address_verified"] = True
+
+    save_steps(doc, steps)
 
     return {
-        "verified_address": data.get("address"),
-        "message": "Address verified successfully.",
-        "status": "success",
-        "verified": True
+        "verified": True,
+        "steps": steps
+    }
+    
+@frappe.whitelist()
+def submit_sales_order(sales_order):
+
+    so = frappe.get_doc("Sales Order", sales_order)
+
+    steps = get_steps(so)
+
+    # Already completed
+    if steps.get("sales_order_submitted"):
+        return {
+            "success": True,
+            "message": "Sales Order already submitted.",
+            "steps": steps
         }
+
+    # Address must be verified first
+    if not steps.get("address_verified"):
+        frappe.throw("Please verify the address before submitting the Sales Order.")
+
+    # Already submitted in ERPNext but step not updated
+    if so.docstatus == 1:
+        steps["sales_order_submitted"] = True
+        save_steps(so, steps)
+
+        return {
+            "success": True,
+            "message": "Sales Order already submitted.",
+            "steps": steps
+        }
+
+    # Submit Sales Order
+    so.submit()
+    so.reload()
+
+    if so.docstatus != 1:
+        frappe.throw("Sales Order submission failed.")
+
+    steps["sales_order_submitted"] = True
+    save_steps(so, steps)
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "message": "Sales Order submitted successfully.",
+        "steps": steps
+    }
+
+@frappe.whitelist()
+def create_delivery_note(sales_order):
+
+    so = frappe.get_doc("Sales Order", sales_order)
+
+    steps = get_steps(so)
+
+    # Already created
+    if steps.get("delivery_note"):
+        return steps["delivery_note"]
+
+    dn = make_delivery_note(sales_order)
+    dn.insert(ignore_permissions=True)
+
+    steps["delivery_note"] = dn.name
+
+    save_steps(so, steps)
+
+    frappe.db.commit()
+
+    return dn.name
+
+@frappe.whitelist()
+def create_packing_slip(
+    delivery_note,
+    from_case_no=None,
+    to_case_no=None,
+    gross_weight=None,
+    net_weight=None,
+    box_weight=0
+):
+
+    dn = frappe.get_doc("Delivery Note", delivery_note)
+
+    so_name = dn.items[0].against_sales_order
+    so = frappe.get_doc("Sales Order", so_name)
+
+    steps = get_steps(so)
+
+    if steps.get("packing_slip"):
+        ps = frappe.get_doc("Packing Slip", steps["packing_slip"])
+
+        return {
+            "packing_slip": ps.name,
+            "status": "exists",
+            "from_case_no": ps.from_case_no,
+            "to_case_no": ps.to_case_no,
+            "gross_weight": ps.gross_weight_pkg,
+            "net_weight": ps.net_weight_pkg,
+            "gross_weight_uom": ps.gross_weight_uom,
+        }
+
+    ps = frappe.new_doc("Packing Slip")
+    ps.delivery_note = delivery_note
+
+    next_case_no = ps.get_recommended_case_no()
+
+    ps.gross_weight_pkg = gross_weight or 0
+    ps.net_weight_pkg = net_weight or 0
+    ps.from_case_no = from_case_no or next_case_no
+    ps.to_case_no = to_case_no or next_case_no
+
+    total_net_weight = 0
+
+    for item in dn.items:
+
+        remaining_qty = item.qty - (item.packed_qty or 0)
+
+        if remaining_qty <= 0:
+            continue
+
+        item_doc = frappe.get_cached_doc("Item", item.item_code)
+
+        total_net_weight = 0
+
+        for item in dn.items:
+
+            remaining_qty = item.qty - (item.packed_qty or 0)
+
+            if remaining_qty <= 0:
+                continue
+
+            item_doc = frappe.get_cached_doc("Item", item.item_code)
+
+            item_net_weight = (item_doc.weight_per_unit or 0) * remaining_qty
+
+            total_net_weight += item_net_weight
+
+            ps.append("items", {
+                "item_code": item.item_code,
+                "item_name": item.item_name,
+                "description": item.description,
+                "qty": remaining_qty,
+                "stock_uom": item.stock_uom,
+                "dn_detail": item.name,
+                "net_weight": item_net_weight
+            })
+
+        ps.net_weight_pkg = total_net_weight
+
+    ps.insert(ignore_permissions=True)
+
+    steps["packing_slip"] = ps.name
+    save_steps(so, steps)
+
+    return {
+        "packing_slip": ps.name,
+        "status": "created",
+        "from_case_no": ps.from_case_no,
+        "to_case_no": ps.to_case_no,
+        "net_weight": ps.net_weight_pkg,
+        "gross_weight_uom": ps.gross_weight_uom,
+    }
+    
+@frappe.whitelist()
+def complete_packing_slip(
+    packing_slip,
+    gross_weight,
+    net_weight,
+    gross_weight_uom,
+    from_case_no=None,
+    to_case_no=None
+):
+
+    ps = frappe.get_doc("Packing Slip", packing_slip)
+
+    if ps.docstatus == 1:
+        return ps.name
+
+    ps.gross_weight_pkg = gross_weight
+    ps.gross_weight_uom = gross_weight_uom
+    ps.net_weight_pkg = net_weight
+    
+    if from_case_no:
+        ps.from_case_no = from_case_no
+
+    if to_case_no:
+        ps.to_case_no = to_case_no
+
+    ps.save(ignore_permissions=True)
+    ps.submit()
+
+    delivery_note = frappe.get_doc("Delivery Note", ps.delivery_note)
+    so = frappe.get_doc("Sales Order", delivery_note.items[0].against_sales_order)
+
+    steps = get_steps(so)
+    steps["packing_slip_submitted"] = True
+    steps["completed"] = True
+    save_steps(so, steps)
+
+    frappe.db.commit()
+
+    return ps.name
+
+
+def get_steps(doc):
+    if not doc.custom_executed_steps:
+        return {
+            "address_verified": False,
+            "sales_order_submitted": False,
+            "delivery_note": None,
+            "packing_slip": None,
+            "completed": False
+        }
+
+    try:
+        return json.loads(doc.custom_executed_steps)
+    except Exception:
+        return {
+            "address_verified": False,
+            "sales_order_submitted": False,
+            "delivery_note": None,
+            "packing_slip": None,
+            "completed": False
+        }
+
+
+def save_steps(doc, steps):
+    doc.db_set(
+        "custom_executed_steps",
+        json.dumps(steps),
+        update_modified=False
+    )

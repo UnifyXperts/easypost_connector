@@ -14,7 +14,9 @@
   "mode",
   "test_key",
   "production_key",
-  "webhook_secret"
+  "webhook_secret",
+  "automate_the_flow",
+  "print_format_for_packing_slip"
  ],
  "fields": [
   {
@@ -70,13 +72,26 @@
    "fieldname": "port",
    "fieldtype": "Int",
    "label": "Port"
+  },
+  {
+   "default": "0",
+   "fieldname": "automate_the_flow",
+   "fieldtype": "Check",
+   "label": "Automate the flow"
+  },
+  {
+   "fieldname": "print_format_for_packing_slip",
+   "fieldtype": "Link",
+   "label": "Print Format For Packing Slip",
+   "link_filters": "[\r\n    [\"Print Format\", \"doc_type\", \"=\", \"Packing Slip\"]\r\n]",
+   "options": "Print Format"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-30 11:39:54.559461",
+ "modified": "2026-08-04 12:00:06.289820",
  "modified_by": "Administrator",
  "module": "Easypost Connector",
  "name": "Easy Post Settings",
