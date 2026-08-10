@@ -270,7 +270,7 @@ def easypost_webhook():
                     "custom_tracking_status_details": new_status_detail,
                     "custom_last_updated_": last_updated,
                     "custom_carrier_name": carrier,
-                    "custom_estimated_delivery_date": estimated_delivery,
+                    "custom_estimated_delivery_date": estimated_delivery
                 }
             )
             frappe.db.commit()
@@ -639,7 +639,6 @@ def create_packing_slip(
     net_weight=None,
     box_weight=0
 ):
-
     dn = frappe.get_doc("Delivery Note", delivery_note)
 
     so_name = dn.items[0].against_sales_order
@@ -672,6 +671,7 @@ def create_packing_slip(
 
     total_net_weight = 0
 
+    # Only ONE loop
     for item in dn.items:
 
         remaining_qty = item.qty - (item.packed_qty or 0)
@@ -681,32 +681,23 @@ def create_packing_slip(
 
         item_doc = frappe.get_cached_doc("Item", item.item_code)
 
-        total_net_weight = 0
+        item_net_weight = (
+            (item_doc.weight_per_unit or 0) * remaining_qty
+        )
 
-        for item in dn.items:
+        total_net_weight += item_net_weight
 
-            remaining_qty = item.qty - (item.packed_qty or 0)
+        ps.append("items", {
+            "item_code": item.item_code,
+            "item_name": item.item_name,
+            "description": item.description,
+            "qty": remaining_qty,
+            "stock_uom": item.stock_uom,
+            "dn_detail": item.name,
+            "net_weight": item_net_weight
+        })
 
-            if remaining_qty <= 0:
-                continue
-
-            item_doc = frappe.get_cached_doc("Item", item.item_code)
-
-            item_net_weight = (item_doc.weight_per_unit or 0) * remaining_qty
-
-            total_net_weight += item_net_weight
-
-            ps.append("items", {
-                "item_code": item.item_code,
-                "item_name": item.item_name,
-                "description": item.description,
-                "qty": remaining_qty,
-                "stock_uom": item.stock_uom,
-                "dn_detail": item.name,
-                "net_weight": item_net_weight
-            })
-
-        ps.net_weight_pkg = total_net_weight
+    ps.net_weight_pkg = total_net_weight
 
     ps.insert(ignore_permissions=True)
 

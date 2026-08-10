@@ -16,7 +16,8 @@
   "production_key",
   "webhook_secret",
   "automate_the_flow",
-  "print_format_for_packing_slip"
+  "print_format_for_packing_slip",
+  "packing_box_item_group"
  ],
  "fields": [
   {
@@ -85,13 +86,19 @@
    "label": "Print Format For Packing Slip",
    "link_filters": "[\r\n    [\"Print Format\", \"doc_type\", \"=\", \"Packing Slip\"]\r\n]",
    "options": "Print Format"
+  },
+  {
+   "fieldname": "packing_box_item_group",
+   "fieldtype": "Table MultiSelect",
+   "label": "Packing Box Item Group ",
+   "options": "Item Group Selection"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-08-04 12:00:06.289820",
+ "modified": "2026-08-06 12:14:50.458535",
  "modified_by": "Administrator",
  "module": "Easypost Connector",
  "name": "Easy Post Settings",
