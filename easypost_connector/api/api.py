@@ -12,7 +12,7 @@ import frappe
 import io
 import math
 import socket
-import pymupdf as fitz
+# import pymupdf as fitz
 from frappe import _
 from frappe.utils.file_manager import save_file
 
