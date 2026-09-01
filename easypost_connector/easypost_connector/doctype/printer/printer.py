@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class EasyPostSettings(Document):
+class Printer(Document):
 	pass

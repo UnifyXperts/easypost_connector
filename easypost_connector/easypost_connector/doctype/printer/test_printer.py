@@ -13,9 +13,9 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestEasyPostSettings(IntegrationTestCase):
+class IntegrationTestPrinter(IntegrationTestCase):
 	"""
-	Integration tests for EasyPostSettings.
+	Integration tests for Printer.
 	Use this class for testing interactions between multiple components.
 	"""
 
