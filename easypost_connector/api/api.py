@@ -313,9 +313,7 @@ def convert_png_to_bw(shipment_id, docname):
 
     import base64
 
-    # --------------------------------------------
-    # Get Delivery Note
-    # --------------------------------------------
+
     doc = frappe.get_doc(
         "Delivery Note",
         docname
@@ -405,144 +403,144 @@ def convert_png_to_bw(shipment_id, docname):
         "message": "ZPL file created and attached successfully."
     }
 
-@frappe.whitelist()
-def print_label(shipment_id, docname):
+# @frappe.whitelist()
+# def print_label(shipment_id, docname):
 
-    settings = get_easypost_settings()
+#     settings = get_easypost_settings()
 
-    if not settings.host_ip or not settings.port:
-        return {
-            "success": False,
-            "print_status": "Printer not configured."
-        }
+#     if not settings.host_ip or not settings.port:
+#         return {
+#             "success": False,
+#             "print_status": "Printer not configured."
+#         }
 
-    host = settings.host_ip
-    port = int(settings.port or 6101)
+#     host = settings.host_ip
+#     port = int(settings.port or 6101)
 
-    print_status = []
+#     print_status = []
 
-    # =====================================================
-    # SHIPPING LABEL
-    # =====================================================
+#     # =====================================================
+#     # SHIPPING LABEL
+#     # =====================================================
 
-    if settings.print_label:
+#     if settings.print_label:
 
-        try:
-            response = requests.get(
-                f"{BASE_URL}/{VERSION}/shipments/{shipment_id}",
-                auth=HTTPBasicAuth(api_key, "")
-            )
+#         try:
+#             response = requests.get(
+#                 f"{BASE_URL}/{VERSION}/shipments/{shipment_id}",
+#                 auth=HTTPBasicAuth(api_key, "")
+#             )
 
-            if response.status_code != 200:
-                frappe.throw(response.text)
+#             if response.status_code != 200:
+#                 frappe.throw(response.text)
 
-            shipment = response.json()
+#             shipment = response.json()
 
-            png_url = shipment["postage_label"]["label_url"]
+#             png_url = shipment["postage_label"]["label_url"]
 
-            # Download Shipping Label PNG
-            img_response = requests.get(png_url)
-            img_response.raise_for_status()
+#             # Download Shipping Label PNG
+#             img_response = requests.get(png_url)
+#             img_response.raise_for_status()
 
-            # PNG -> ZPL
-            shipping_zpl = png_bytes_to_zpl(
-                img_response.content,
-                source_dpi=TARGET_DPI
-            )
+#             # PNG -> ZPL
+#             shipping_zpl = png_bytes_to_zpl(
+#                 img_response.content,
+#                 source_dpi=TARGET_DPI
+#             )
 
-            # Send to printer
-            shipping_status = print_zpl(
-                host=host,
-                port=port,
-                zpl_bytes=shipping_zpl,
-                copies=1
-            )
+#             # Send to printer
+#             shipping_status = print_zpl(
+#                 host=host,
+#                 port=port,
+#                 zpl_bytes=shipping_zpl,
+#                 copies=1
+#             )
 
-            # Save binary ZPL safely as Base64
-            import base64
+#             # Save binary ZPL safely as Base64
+#             import base64
 
-            shipping_zpl_base64 = base64.b64encode(
-                shipping_zpl
-            ).decode("ascii")
+#             shipping_zpl_base64 = base64.b64encode(
+#                 shipping_zpl
+#             ).decode("ascii")
 
-            frappe.db.set_value(
-                "Delivery Note",
-                docname,
-                "custom_zpl_file_content",
-                shipping_zpl_base64
-            )
+#             frappe.db.set_value(
+#                 "Delivery Note",
+#                 docname,
+#                 "custom_zpl_file_content",
+#                 shipping_zpl_base64
+#             )
 
-            print_status.append(
-                f"Shipping Label: {shipping_status}"
-            )
+#             print_status.append(
+#                 f"Shipping Label: {shipping_status}"
+#             )
 
-        except Exception:
+#         except Exception:
 
-            frappe.log_error(
-                frappe.get_traceback(),
-                "Shipping Label Print Failed"
-            )
+#             frappe.log_error(
+#                 frappe.get_traceback(),
+#                 "Shipping Label Print Failed"
+#             )
 
-            print_status.append(
-                "Shipping Label: Print failed."
-            )
+#             print_status.append(
+#                 "Shipping Label: Print failed."
+#             )
 
-    # =====================================================
-    # PACKING SLIP
-    # =====================================================
+#     # =====================================================
+#     # PACKING SLIP
+#     # =====================================================
 
-    if settings.print_packing_slip:
+#     if settings.print_packing_slip:
 
-        try:
+#         try:
 
-            packing_slip_zpl = packing_slip_to_zpl(
-                docname
-            )
+#             packing_slip_zpl = packing_slip_to_zpl(
+#                 docname
+#             )
 
-            packing_slip_status = print_zpl(
-                host=host,
-                port=port,
-                zpl_bytes=packing_slip_zpl,
-                copies=1
-            )
+#             packing_slip_status = print_zpl(
+#                 host=host,
+#                 port=port,
+#                 zpl_bytes=packing_slip_zpl,
+#                 copies=1
+#             )
 
-            print_status.append(
-                f"Packing Slip: {packing_slip_status}"
-            )
+#             print_status.append(
+#                 f"Packing Slip: {packing_slip_status}"
+#             )
 
-        except Exception:
+#         except Exception:
 
-            frappe.log_error(
-                frappe.get_traceback(),
-                "Packing Slip Print Failed"
-            )
+#             frappe.log_error(
+#                 frappe.get_traceback(),
+#                 "Packing Slip Print Failed"
+#             )
 
-            print_status.append(
-                "Packing Slip: Print failed."
-            )
+#             print_status.append(
+#                 "Packing Slip: Print failed."
+#             )
 
-    # =====================================================
-    # NOTHING SELECTED
-    # =====================================================
+#     # =====================================================
+#     # NOTHING SELECTED
+#     # =====================================================
 
-    if not print_status:
+#     if not print_status:
 
-        return {
-            "success": False,
-            "print_status": (
-                "Please enable Print Label or "
-                "Print Packing Slip in Easy Post Settings."
-            )
-        }
+#         return {
+#             "success": False,
+#             "print_status": (
+#                 "Please enable Print Label or "
+#                 "Print Packing Slip in Easy Post Settings."
+#             )
+#         }
 
-    frappe.db.commit()
+#     frappe.db.commit()
 
-    return {
-        "success": True,
-        "print_status": "\n".join(print_status)
-    }
+#     return {
+#         "success": True,
+#         "print_status": "\n".join(print_status)
+#     }
 
-# =========================== new conversion logic ==================================
+# # =========================== new conversion logic ==================================
 def png_bytes_to_zpl(png_bytes: bytes, source_dpi: int = None) -> bytes:
     """
     Convert EasyPost PNG label to ZPL (^GFB binary format).
@@ -651,164 +649,6 @@ def print_zpl(host: str, port: int, zpl_bytes: bytes,
 
     return (f"Sent {copies} label(s) ({len(zpl_bytes):,} bytes) to {host}:{port}" +
             (f" — printer: {repr(response)}" if response else ""))
-
-
-import fitz
-from PIL import Image
-from io import BytesIO
-
-
-LABEL_WIDTH_INCH = 4
-LABEL_HEIGHT_INCH = 6
-
-TARGET_DPI = 300
-
-LABEL_WIDTH_PX = LABEL_WIDTH_INCH * TARGET_DPI    # 1200
-LABEL_HEIGHT_PX = LABEL_HEIGHT_INCH * TARGET_DPI  # 1800
-
-
-from PIL import Image
-from io import BytesIO
-import fitz
-
-
-def packing_slip_to_zpl(docname):
-    """
-    Generate Packing Slip PDF, render at high resolution,
-    downsample to exact 4x6 label dimensions, then convert to ZPL.
-    """
-
-    settings = get_easypost_settings()
-
-    print_format = settings.print_format_for_packing_slip
-
-    if not print_format:
-        frappe.throw(
-            _("Print Format for Packing Slip is not configured.")
-        )
-
-    # -----------------------------------------
-    # Find Packing Slip linked to Delivery Note
-    # -----------------------------------------
-
-    packing_slip_name = frappe.db.get_value(
-        "Packing Slip",
-        {"delivery_note": docname},
-        "name"
-    )
-
-    if not packing_slip_name:
-        frappe.throw(
-            _("Packing Slip not found for Delivery Note {0}.")
-            .format(docname)
-        )
-
-    # -----------------------------------------
-    # Generate Packing Slip PDF
-    # -----------------------------------------
-
-    pdf_bytes = frappe.get_print(
-        "Packing Slip",
-        packing_slip_name,
-        print_format=print_format,
-        as_pdf=True,
-        no_letterhead=1
-    )
-
-    if not pdf_bytes:
-        frappe.throw(
-            _("Unable to generate Packing Slip PDF.")
-        )
-
-    # -----------------------------------------
-    # PDF -> High Resolution PNG -> ZPL
-    # -----------------------------------------
-
-    pdf = fitz.open(
-        stream=pdf_bytes,
-        filetype="pdf"
-    )
-
-    zpl_parts = []
-
-    # Render at 2x final resolution
-    RENDER_SCALE = 4
-
-    HIGH_RES_WIDTH = LABEL_WIDTH_PX * RENDER_SCALE
-    HIGH_RES_HEIGHT = LABEL_HEIGHT_PX * RENDER_SCALE
-
-    try:
-
-        for page in pdf:
-
-            page_rect = page.rect
-
-            # Render PDF at high resolution
-            zoom_x = HIGH_RES_WIDTH / page_rect.width
-            zoom_y = HIGH_RES_HEIGHT / page_rect.height
-
-            matrix = fitz.Matrix(
-                zoom_x,
-                zoom_y
-            )
-
-            pix = page.get_pixmap(
-                matrix=matrix,
-                alpha=False
-            )
-
-            img = Image.open(
-                BytesIO(pix.tobytes("png"))
-            ).convert("L")
-
-            print(
-                "High resolution render:",
-                img.size
-            )
-
-            # Downsample to exact printer resolution
-            img = img.resize(
-                (
-                    LABEL_WIDTH_PX,
-                    LABEL_HEIGHT_PX
-                ),
-                Image.Resampling.LANCZOS
-            )
-
-            print(
-                "Final label size:",
-                img.size
-            )
-
-            # Save PNG
-            output = BytesIO()
-
-            img.save(
-                output,
-                format="PNG",
-                dpi=(TARGET_DPI, TARGET_DPI),
-                optimize=True
-            )
-
-            png_bytes = output.getvalue()
-
-            # Convert PNG -> ZPL
-            zpl_bytes = png_bytes_to_zpl(
-                png_bytes,
-                source_dpi=TARGET_DPI
-            )
-
-            zpl_parts.append(zpl_bytes)
-
-    finally:
-        pdf.close()
-
-    if not zpl_parts:
-        frappe.throw(
-            _("No pages found in Packing Slip.")
-        )
-
-    return b"\n".join(zpl_parts)
 
 
 @frappe.whitelist()
@@ -1103,13 +943,14 @@ def create_packing_slip(
 
 @frappe.whitelist()
 def complete_packing_slip(
-    packing_slip,
-    gross_weight,
-    net_weight,
-    gross_weight_uom,
-    from_case_no=None,
-    to_case_no=None
-):
+                packing_slip,
+                gross_weight,
+                net_weight,
+                gross_weight_uom,
+                from_case_no=None,
+                to_case_no=None
+                ):
+
 
     ps = frappe.get_doc("Packing Slip", packing_slip)
 
@@ -1119,7 +960,7 @@ def complete_packing_slip(
     ps.gross_weight_pkg = gross_weight
     ps.gross_weight_uom = gross_weight_uom
     ps.net_weight_pkg = net_weight
-    
+
     if from_case_no:
         ps.from_case_no = from_case_no
 
@@ -1129,63 +970,30 @@ def complete_packing_slip(
     ps.save(ignore_permissions=True)
     ps.submit()
 
-    delivery_note = frappe.get_doc("Delivery Note", ps.delivery_note)
-    so = frappe.get_doc("Sales Order", delivery_note.items[0].against_sales_order)
+    delivery_note = frappe.get_doc(
+        "Delivery Note",
+        ps.delivery_note
+    )
+
+    so = frappe.get_doc(
+        "Sales Order",
+        delivery_note.items[0].against_sales_order
+    )
 
     steps = get_steps(so)
     steps["packing_slip_submitted"] = True
     steps["completed"] = True
+
     save_steps(so, steps)
-    
-    settings = get_easypost_settings()
-
-    print_status = []
-
-    # Skip printing if printer is not configured
-    if not settings.host_ip:
-        print_status.append("Printer not configured.")
-
-    else:
-        host = settings.host_ip
-        port = int(settings.port or 6101)
-
-        try:
-            packing_slip_zpl = packing_slip_to_zpl(ps.name)
-
-            if packing_slip_zpl:
-                status = print_zpl(
-                    host=host,
-                    port=port,
-                    zpl_bytes=packing_slip_zpl,
-                    copies=1
-                )
-
-                print_status.append(
-                    f"Packing Slip: {status}"
-                )
-
-            else:
-                print_status.append(
-                    "Packing Slip ZPL could not be generated. Printing skipped."
-                )
-
-        except Exception as e:
-            frappe.log_error(
-                frappe.get_traceback(),
-                "Packing Slip Printing Error"
-            )
-
-            print_status.append(
-                f"Packing Slip printing failed: {str(e)}"
-            )
 
     frappe.db.commit()
 
     return {
         "success": True,
-        "packing_slip": ps.name,
-        "print_status": print_status
+        "packing_slip": ps.name
     }
+
+
 
 
 def get_steps(doc):
@@ -1216,6 +1024,160 @@ def save_steps(doc, steps):
         json.dumps(steps),
         update_modified=False
     )
+
+
+
+
+
+
+
+
+# LABEL_WIDTH_INCH = 4
+# LABEL_HEIGHT_INCH = 6
+
+# TARGET_DPI = 300
+
+# LABEL_WIDTH_PX = LABEL_WIDTH_INCH * TARGET_DPI    # 1200
+# LABEL_HEIGHT_PX = LABEL_HEIGHT_INCH * TARGET_DPI  # 1800
+
+
+# def packing_slip_to_zpl(docname):
+#     """
+#     Generate Packing Slip PDF, render at high resolution,
+#     downsample to exact 4x6 label dimensions, then convert to ZPL.
+#     """
+
+#     settings = get_easypost_settings()
+
+#     print_format = settings.print_format_for_packing_slip
+
+#     if not print_format:
+#         frappe.throw(
+#             _("Print Format for Packing Slip is not configured.")
+#         )
+
+#     # -----------------------------------------
+#     # Find Packing Slip linked to Delivery Note
+#     # -----------------------------------------
+
+#     packing_slip_name = frappe.db.get_value(
+#         "Packing Slip",
+#         {"delivery_note": docname},
+#         "name"
+#     )
+
+#     if not packing_slip_name:
+#         frappe.throw(
+#             _("Packing Slip not found for Delivery Note {0}.")
+#             .format(docname)
+#         )
+
+#     # -----------------------------------------
+#     # Generate Packing Slip PDF
+#     # -----------------------------------------
+
+#     pdf_bytes = frappe.get_print(
+#         "Packing Slip",
+#         packing_slip_name,
+#         print_format=print_format,
+#         as_pdf=True,
+#         no_letterhead=1
+#     )
+
+#     if not pdf_bytes:
+#         frappe.throw(
+#             _("Unable to generate Packing Slip PDF.")
+#         )
+
+#     # -----------------------------------------
+#     # PDF -> High Resolution PNG -> ZPL
+#     # -----------------------------------------
+
+#     pdf = fitz.open(
+#         stream=pdf_bytes,
+#         filetype="pdf"
+#     )
+
+#     zpl_parts = []
+
+#     # Render at 2x final resolution
+#     RENDER_SCALE = 4
+
+#     HIGH_RES_WIDTH = LABEL_WIDTH_PX * RENDER_SCALE
+#     HIGH_RES_HEIGHT = LABEL_HEIGHT_PX * RENDER_SCALE
+
+#     try:
+
+#         for page in pdf:
+
+#             page_rect = page.rect
+
+#             # Render PDF at high resolution
+#             zoom_x = HIGH_RES_WIDTH / page_rect.width
+#             zoom_y = HIGH_RES_HEIGHT / page_rect.height
+
+#             matrix = fitz.Matrix(
+#                 zoom_x,
+#                 zoom_y
+#             )
+
+#             pix = page.get_pixmap(
+#                 matrix=matrix,
+#                 alpha=False
+#             )
+
+#             img = Image.open(
+#                 BytesIO(pix.tobytes("png"))
+#             ).convert("L")
+
+#             print(
+#                 "High resolution render:",
+#                 img.size
+#             )
+
+#             # Downsample to exact printer resolution
+#             img = img.resize(
+#                 (
+#                     LABEL_WIDTH_PX,
+#                     LABEL_HEIGHT_PX
+#                 ),
+#                 Image.Resampling.LANCZOS
+#             )
+
+#             print(
+#                 "Final label size:",
+#                 img.size
+#             )
+
+#             # Save PNG
+#             output = BytesIO()
+
+#             img.save(
+#                 output,
+#                 format="PNG",
+#                 dpi=(TARGET_DPI, TARGET_DPI),
+#                 optimize=True
+#             )
+
+#             png_bytes = output.getvalue()
+
+#             # Convert PNG -> ZPL
+#             zpl_bytes = png_bytes_to_zpl(
+#                 png_bytes,
+#                 source_dpi=TARGET_DPI
+#             )
+
+#             zpl_parts.append(zpl_bytes)
+
+#     finally:
+#         pdf.close()
+
+#     if not zpl_parts:
+#         frappe.throw(
+#             _("No pages found in Packing Slip.")
+#         )
+
+#     return b"\n".join(zpl_parts)
 
 # import base64
 # import math
