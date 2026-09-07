@@ -15,6 +15,7 @@
   "dpi",
   "print_label",
   "print_packing_slip",
+  "default_uom_for_parcel",
   "column_break_nwol",
   "mode",
   "test_key",
@@ -152,12 +153,18 @@
    "fieldname": "default_number_of_copies",
    "fieldtype": "Int",
    "label": "Default Number of Copies"
+  },
+  {
+   "fieldname": "default_uom_for_parcel",
+   "fieldtype": "Link",
+   "label": "Default UOM for Parcel",
+   "options": "UOM"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 14:20:47.844198",
+ "modified": "2026-09-07 16:43:49.551266",
  "modified_by": "Administrator",
  "module": "Easypost Connector",
  "name": "Easypost Settings",

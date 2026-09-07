@@ -533,6 +533,22 @@ async function print_packingslip(frm) {
         });
         return false;
     }
+    settings_list = await frappe.db.get_list(
+        "Easypost Settings",
+        {
+            filters: {
+                enabled: 1
+            },
+            fields: ["name"],
+            limit: 1
+        }
+    );
+    const easypost_settings = await frappe.db.get_doc(
+        "Easypost Settings",
+        settings_list[0].name
+    );
+
+    const default_uom_for_parcel = easypost_settings.default_uom_for_parcel;
 
     const r = await frappe.call({
         method: "easypost_connector.api.api.create_packing_slip",
@@ -560,7 +576,7 @@ async function print_packingslip(frm) {
         })
     );
 
-    const box_uom = box_uoms[0] || null;
+    const box_uom = box_uoms[0] || default_uom_for_parcel;
 
     return new Promise((resolve, reject) => {
         let completed = false;
@@ -791,7 +807,62 @@ async function generate_zpl_step(frm) {
     }
 }
 
-async function fetch_shipping_rates(frm) {
+function get_human_readable_error(e) {
+    try {
+        // Get server exception message
+        let raw_message =
+            e?.message ||
+            e?._server_messages ||
+            e?.exc ||
+            "";
+
+        // Parse _server_messages if needed
+        if (typeof raw_message === "string") {
+            try {
+                const parsed = JSON.parse(raw_message);
+
+                // Sometimes Frappe returns array/string
+                raw_message = Array.isArray(parsed)
+                    ? parsed[0]
+                    : parsed;
+            } catch (_) { }
+        }
+
+        // Parse again if still stringified JSON
+        if (typeof raw_message === "string") {
+            try {
+                raw_message = JSON.parse(raw_message);
+            } catch (_) { }
+        }
+
+        // Find API error
+        const error = raw_message?.error || raw_message;
+
+        if (error?.errors?.length) {
+            return error.errors
+                .map(err => {
+                    const field = err.field
+                        ?.replace("shipment.parcel.", "")
+                        ?.replace(/_/g, " ");
+
+                    const formatted_field =
+                        field?.charAt(0).toUpperCase() +
+                        field?.slice(1);
+
+                    return `<b>${formatted_field}:</b> ${err.message}`;
+                })
+                .join("<br>");
+        }
+
+        return error?.message || "Failed to fetch shipping rates.";
+
+    } catch (err) {
+        console.error("Error formatting message:", err);
+        return "Failed to fetch shipping rates.";
+    }
+}
+
+async function fetch_shipping_rates(frm, length = null, width = null, height = null, weight = null) {
 
     if (frm.__fetching_rates) {
         return;
@@ -803,7 +874,11 @@ async function fetch_shipping_rates(frm) {
         const r = await frappe.call({
             method: "easypost_connector.api.api.create_easypost_shipment",
             args: {
-                delivery_note: frm.doc.name
+                delivery_note: frm.doc.name,
+                length: length,
+                width: width,
+                height: height,
+                weight: weight
             },
             freeze: true,
             freeze_message: "Fetching Shipping rate......."
@@ -892,11 +967,11 @@ async function fetch_shipping_rates(frm) {
     } catch (e) {
         console.error("Shipping rate fetch failed:", e);
 
-        frappe.msgprint({
-            title: __("Failed to Fetch Shipping Rates"),
-            indicator: "red",
-            message: e?.message || __("An unknown error occurred.")
-        });
+        // frappe.msgprint({
+        //     title: __("Failed to Fetch Shipping Rates"),
+        //     indicator: "red",
+        //     message: get_human_readable_error(e)
+        // });
 
     } finally {
         frm.__fetching_rates = false;
@@ -928,19 +1003,23 @@ const formatType = (type) => {
 
 let shipping_timer = null;
 
-function debounce_fetch(frm) {
+function debounce_fetch(frm, length = null, width = null, height = null, weight = null) {
 
     clearTimeout(shipping_timer);
     shipping_timer = setTimeout(() => {
-        fetch_shipping_rates(frm);
+        fetch_shipping_rates(frm, length, width, height, weight);
     }, 100);
 }
 
 let dimension_change_timer = null;
 let changed_dimensions = new Set();
 
-function dimension_changed(frm, field) {
-    if (!frm.doc.custom_initial_fetch) {
+function dimension_changed(frm, field, length = null, width = null, height = null, weight = null) {
+    const can_recalculate =
+        frm.doc.custom_initial_fetch ||
+        frm.doc.custom_manual_entry;
+
+    if (!can_recalculate || frm.is_new()) {
         return;
     }
 
@@ -955,7 +1034,22 @@ function dimension_changed(frm, field) {
     );
 
     if (confirmed) {
-        debounce_fetch(frm);
+        const invalid_parcel = (frm.doc.custom_shipment_parcel_dimensions || []).find(
+            row =>
+                !row.length || row.length <= 0 ||
+                !row.width || row.width <= 0 ||
+                !row.height || row.height <= 0 ||
+                !row.weight || row.weight <= 0
+        );
+
+        if (invalid_parcel) {
+            frappe.msgprint(
+                __("Please enter valid Length, Width, Height and Weight before recalculating.")
+            );
+            return;
+        }
+
+        debounce_fetch(frm, length, width, height, weight);
     }
 }
 
@@ -1647,14 +1741,16 @@ background: #f5f5f5;
     // ============================
     after_save: async function (frm) {
 
-        if (frm.doc.docstatus !== 0) return;
 
         if (
             frm.doc.custom_initial_fetch &&
-            frm.doc.custom_show_progress
+            frm.doc.custom_show_progress &&
+            !frm.doc.custom_manual_entry
         ) {
             return;
         }
+
+        if (frm.doc.docstatus !== 0 || frm.doc.custom_initial_fetch) return;
 
         if (frm.__initial_fetch_running) {
             return;
@@ -1686,22 +1782,69 @@ frappe.ui.form.on("Packaging Box Details", {
     quantity: function (frm, cdt, cdn) { fetch_dimensions(frm, cdt, cdn); }
 });
 
+
 frappe.ui.form.on("Shipment Parcel", {
+
     length(frm, cdt, cdn) {
-        dimension_changed(frm, "length");
+        const row = locals[cdt][cdn];
+
+        frm.set_value("custom_manual_entry", 1);
+
+        dimension_changed(
+            frm,
+            "length",
+            row.length,
+            row.width,
+            row.height,
+            row.weight
+        );
     },
 
     width(frm, cdt, cdn) {
-        dimension_changed(frm, "width");
+        const row = locals[cdt][cdn];
+
+        frm.set_value("custom_manual_entry", 1);
+
+        dimension_changed(
+            frm,
+            "width",
+            row.length,
+            row.width,
+            row.height,
+            row.weight
+        );
     },
 
     height(frm, cdt, cdn) {
-        dimension_changed(frm, "height");
+        const row = locals[cdt][cdn];
+
+        frm.set_value("custom_manual_entry", 1);
+
+        dimension_changed(
+            frm,
+            "height",
+            row.length,
+            row.width,
+            row.height,
+            row.weight
+        );
     },
 
     weight(frm, cdt, cdn) {
-        dimension_changed(frm, "weight");
+        const row = locals[cdt][cdn];
+
+        frm.set_value("custom_manual_entry", 1);
+
+        dimension_changed(
+            frm,
+            "weight",
+            row.length,
+            row.width,
+            row.height,
+            row.weight
+        );
     }
+
 });
 
 frappe.ui.form.on("Carrier Delivery Rate Table", {

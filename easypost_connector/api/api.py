@@ -56,7 +56,7 @@ TARGET_DPI = EasyPostSettings.dpi or 300
 
 
 @frappe.whitelist()
-def create_easypost_shipment(doc=None, method=None, delivery_note=None):
+def create_easypost_shipment(doc=None, method=None, delivery_note=None,length=None,width=None,height=None,weight=None):
     if not delivery_note :
         return 
     
@@ -122,10 +122,10 @@ def create_easypost_shipment(doc=None, method=None, delivery_note=None):
                 "email": company_address.email_id or ""
             },
             "parcel": {
-                "length": parcel.length,
-                "width": parcel.width,
-                "height": parcel.height,
-                "weight": parcel.weight
+                "length": length if length else parcel.length,
+                "width": width if width else parcel.width,
+                "height": height if height else parcel.height,
+                "weight": weight if weight else parcel.weight
             }
         }
     }
@@ -138,7 +138,42 @@ def create_easypost_shipment(doc=None, method=None, delivery_note=None):
     )
 
     if response.status_code >= 400:
-        frappe.throw(response.text)
+        try:
+            error_data = response.json()
+            error = error_data.get("error", {})
+            errors = error.get("errors", [])
+
+            if errors:
+                formatted_errors = []
+
+                for err in errors:
+                    field = err.get("field", "")
+                    message = err.get("message", "Invalid value")
+
+                    # Convert shipment.parcel.width → Package Width
+                    if field.startswith("shipment.parcel."):
+                        field_name = field.replace("shipment.parcel.", "")
+                        field_name = field_name.replace("_", " ").title()
+                        field_name = f"Package {field_name}"
+                    else:
+                        field_name = field.replace("_", " ").title()
+
+                    formatted_errors.append(
+                        f"<b>{field_name}:</b> {message}"
+                    )
+
+                frappe.throw(
+                    title="Error",
+                    msg="<br>".join(formatted_errors))
+
+            else:
+                frappe.throw(
+                    title="Error",
+                    msg=error.get("message", "Failed to create shipment.")
+                )
+
+        except ValueError:
+            frappe.throw("Failed to create shipment. Please check the shipment details.")
 
     return response.json()
 
