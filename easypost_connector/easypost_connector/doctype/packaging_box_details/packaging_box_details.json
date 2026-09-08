@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-07-09 16:20:06.704749",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "packing_box",
+  "packing_box_description",
+  "quantity"
+ ],
+ "fields": [
+  {
+   "fieldname": "packing_box",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Packing Box",
+   "link_filters": "[[\"Item\",\"item_group\",\"=\",\"Packaging Box\"]]",
+   "options": "Item"
+  },
+  {
+   "fetch_from": "packing_box.item_name",
+   "fieldname": "packing_box_description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Packing Box Description",
+   "link_filters": "[[\"Item\",\"item_group\",\"=\",\"Packaging Box\"]]",
+   "options": "Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Quantity"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-08 10:09:18.997074",
+ "modified_by": "Administrator",
+ "module": "Easypost Connector",
+ "name": "Packaging Box Details",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
