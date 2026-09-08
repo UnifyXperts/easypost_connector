@@ -42,6 +42,12 @@ frappe.ui.form.on("Sales Order", {
 
     before_submit: async function (frm) {
 
+        const weight_valid = await validate_item_weight(frm);
+
+        if (!weight_valid) {
+            frappe.validated = false;
+            return;
+        }
 
         const valid = await validate_item_stock(frm);
 
@@ -222,12 +228,33 @@ async function validate_item_stock(frm) {
                 label: __("Create Stock Entry"),
 
                 action() {
-                    frappe.new_doc(
-                        "Stock Entry",
-                        {
-                            stock_entry_type: "Material Receipt"
-                        }
-                    );
+                    frappe.model.with_doctype("Stock Entry", () => {
+
+                        let stock_entry = frappe.model.get_new_doc("Stock Entry");
+
+                        stock_entry.stock_entry_type = "Material Receipt";
+
+                        shortages.forEach(row => {
+
+                            let item = frappe.model.add_child(
+                                stock_entry,
+                                "Stock Entry Detail",
+                                "items"
+                            );
+
+                            item.item_code = row.item;
+                            item.t_warehouse = row.warehouse;
+                            item.qty = row.required;
+                            item.conversion_factor = 1;
+
+                        });
+
+                        frappe.set_route(
+                            "Form",
+                            "Stock Entry",
+                            stock_entry.name
+                        );
+                    });
                 }
             }
         });
@@ -236,4 +263,103 @@ async function validate_item_stock(frm) {
     }
 
     return true;
+}
+
+async function validate_item_weight(frm) {
+    const invalid_items = [];
+
+    for (const item of (frm.doc.items || [])) {
+
+        if (!item.item_code) {
+            continue;
+        }
+
+        const response = await frappe.db.get_value(
+            "Item",
+            item.item_code,
+            [
+                "weight_per_unit",
+                "weight_uom",
+                "is_stock_item"
+            ]
+        );
+
+        const weight_per_unit =
+            response.message?.weight_per_unit;
+
+        const weight_uom =
+            response.message?.weight_uom;
+        const is_stock_item =
+            response.message?.is_stock_item == 1 ? "Stock Item" : "Service Item";
+
+        if (!weight_per_unit || !weight_uom) {
+            invalid_items.push({
+                item_code: item.item_code,
+                weight_per_unit,
+                weight_uom,
+                is_stock_item
+            });
+        }
+    }
+
+    if (!invalid_items.length) {
+        return true;
+    }
+
+    let html = `
+        <div style="max-height:300px; overflow:auto;">
+            <table class="table table-bordered">
+                <thead style="background:#fff3cd;">
+                    <tr>
+                        <th>Item</th>
+                        <th>Type Of Item </th>
+                        <th>Weight Per Unit</th>
+                        <th>Weight UOM</th>
+                        <th>Action</th>
+
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    invalid_items.forEach(row => {
+        html += `
+            <tr>
+                <td>${frappe.utils.escape_html(row.item_code)}</td>
+                <td>${frappe.utils.escape_html(row.is_stock_item || "Not Set")}</td>
+
+                <td style="color:red;">
+                    ${row.weight_per_unit || "Not Set"}
+                </td>
+
+                <td style="color:red;">
+                    ${frappe.utils.escape_html(
+            row.weight_uom || "Not Set"
+        )}
+                </td>
+                <td>
+                    <a href="/app/item/${row.item_code}" class="btn btn-xs btn-primary">Go To Item</a>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+
+            <p style="color:#856404; font-weight:bold;">
+                Please configure Weight Per Unit and Weight UOM
+                for the above Item(s).
+            </p>
+        </div>
+    `;
+
+    frappe.msgprint({
+        title: __("Missing Item Weight Configuration"),
+        indicator: "orange",
+        message: html
+    });
+
+    return false;
 }

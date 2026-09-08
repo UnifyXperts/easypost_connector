@@ -886,6 +886,9 @@ async function fetch_shipping_rates(frm, length = null, width = null, height = n
 
         const shipment = r.message;
 
+        if (!shipment) {
+            return false
+        }
         // Clear existing rates
         frm.clear_table("custom_rate");
 
@@ -903,7 +906,7 @@ async function fetch_shipping_rates(frm, length = null, width = null, height = n
                 row.rate_id = rate.id;
                 row.shipment_id = shipment.id;
             });
-        await frm.save();
+        // await frm.save();
 
         // Render carrier errors
         const messages = shipment.messages || [];
@@ -963,16 +966,16 @@ async function fetch_shipping_rates(frm, length = null, width = null, height = n
             message: __("Shipping rates updated."),
             indicator: "green"
         });
+        if (!frm.doc.custom_initial_fetch) {
+            frm.set_value("custom_initial_fetch", 1)
+        }
+
+        frm.save();
+        return true
 
     } catch (e) {
         console.error("Shipping rate fetch failed:", e);
-
-        // frappe.msgprint({
-        //     title: __("Failed to Fetch Shipping Rates"),
-        //     indicator: "red",
-        //     message: get_human_readable_error(e)
-        // });
-
+        return false
     } finally {
         frm.__fetching_rates = false;
         frappe.hide_progress();
@@ -1760,20 +1763,34 @@ background: #f5f5f5;
 
         try {
 
-            await fetch_shipping_rates(frm);
+            let a = await fetch_shipping_rates(frm);
 
-            await frm.set_value(
-                "custom_initial_fetch",
-                1
-            );
+            if (!a) return;
+            // await frm.set_value(
+            //     "custom_initial_fetch",
+            //     1
+            // );
 
-            await frm.save();
+            // await frm.save();
 
         } finally {
 
             frm.__initial_fetch_running = false;
         }
     },
+
+    before_submit: async function (frm) {
+        if (!frm.doc.custom_packing_slip_completed) {
+            frappe.msgprint("Please Complete Packing Slip Before Submitting");
+            frappe.validated = false;
+            return;
+        }
+        if (!frm.doc.custom_label_created) {
+            frappe.msgprint("Please Create Label Before Submitting");
+            frappe.validated = false;
+            return;
+        }
+    }
 
 });
 
