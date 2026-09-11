@@ -94,11 +94,12 @@ def create_easypost_shipment(doc=None, method=None, delivery_note=None,length=No
 
     
     parcel = dn.custom_shipment_parcel_dimensions[0]
-    
+    marketplace_order_id = so.custom_marketplace_order_id
     
 
     payload = {
         "shipment": {
+            "reference": marketplace_order_id,
             "to_address": {
                 "name": so.customer_name,
                 "street1": shipping_address.address_line1,
