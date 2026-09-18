@@ -1647,8 +1647,12 @@ background: #f5f5f5;
     refresh: async function (frm) {
 
         frm.add_custom_button("Go to Sales Order List", () => {
-            frappe.set_route("List", "Sales Order");
-        })
+            const url = frappe.urllib.get_full_url(
+                "/app/sales-order"
+            );
+
+            window.open(url, "_blank");
+        });
 
         // ==================================
         // Get Enabled Easypost Settings
