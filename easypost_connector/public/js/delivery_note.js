@@ -565,18 +565,34 @@ async function print_packingslip(frm) {
         return total + (flt(row.weight) * flt(row.count || 1));
     }, 0);
 
-    const box_uoms = await Promise.all(
-        (frm.doc.custom_packing_box_details || []).map(async row => {
-            const item = await frappe.db.get_doc(
-                "Item",
-                row.packing_box
-            );
+    const box_details = frm.doc.custom_packing_box_details || [];
 
-            return item.weight_uom;
+    const valid_box_rows = box_details.filter(
+        row => row.packing_box
+    );
+
+    const box_uoms = await Promise.all(
+        valid_box_rows.map(async row => {
+            try {
+                const item = await frappe.db.get_doc(
+                    "Item",
+                    row.packing_box
+                );
+
+                return item.weight_uom || null;
+            } catch (e) {
+                console.error(
+                    `Unable to fetch Item: ${row.packing_box}`,
+                    e
+                );
+                return null;
+            }
         })
     );
 
-    const box_uom = box_uoms[0] || default_uom_for_parcel;
+    const box_uom =
+        box_uoms.find(uom => uom) ||
+        default_uom_for_parcel;
 
     return new Promise((resolve, reject) => {
         let completed = false;
@@ -1629,6 +1645,10 @@ background: #f5f5f5;
     }
     ,
     refresh: async function (frm) {
+
+        frm.add_custom_button("Go to Sales Order List", () => {
+            frappe.set_route("List", "Sales Order");
+        })
 
         // ==================================
         // Get Enabled Easypost Settings
